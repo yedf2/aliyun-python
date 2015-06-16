@@ -4,6 +4,7 @@ Created on 2012-7-3
 
 @author: lijie.ma
 '''
+import sys
 
 try: import httplib
 except ImportError:
@@ -35,14 +36,23 @@ def sign(accessKeySecret, parameters):
         canonicalizedQueryString += '&' + percent_encode(k) + '=' + percent_encode(v)
 
     stringToSign = 'POST&%2F&' + percent_encode(canonicalizedQueryString[1:])
-
-    h = hmac.new(accessKeySecret + "&", stringToSign, sha1)
+    bs = accessKeySecret + "&"
+    if sys.version_info.major == 3:
+        bs = bytes(bs, encoding='utf8')
+        stringToSign = bytes(stringToSign, encoding='utf8')
+    h = hmac.new(bs, stringToSign, sha1)
     signature = base64.encodestring(h.digest()).strip()
     return signature
 
 def percent_encode(encodeStr):
     encodeStr = str(encodeStr)
-    res = urllib.quote(encodeStr.decode(sys.stdin.encoding).encode('utf8'), '')
+    res = encodeStr
+    if sys.version_info.major == 2:
+        import urllib
+        res = urllib.quote(encodeStr.decode(sys.stdin.encoding).encode('utf8'), '')
+    else:
+        import urllib.request
+        res = urllib.request.quote(encodeStr)
     res = res.replace('+', '%20')
     res = res.replace('*', '%2A')
     res = res.replace('%7E', '~')
@@ -219,8 +229,14 @@ class RestApi(object):
 
         signature = sign(self.__access_key_secret,parameters)
         parameters['Signature'] = signature
-        url = "/?" + urllib.urlencode(parameters)
-        
+        url = "/?"
+        if sys.version_info.major == 2:
+            import urllib
+            url += urllib.urlencode(parameters)
+        else:
+            import urllib.parse
+            url += urllib.parse.urlencode(parameters)
+
         connection.connect()
         
         header = self.get_request_header();
@@ -237,13 +253,16 @@ class RestApi(object):
         connection.request(self.__httpmethod, url, body=body, headers=header)
         response = connection.getresponse();
         result = response.read()
+        if sys.version_info.major == 3:
+            result = str(result, encoding='utf8')
         jsonobj = json.loads(result)
         return jsonobj
     
     
     def getApplicationParameters(self):
         application_parameter = {}
-        for key, value in self.__dict__.iteritems():
+        for key in self.__dict__:
+            value = self.__dict__[key]
             if not key.startswith("__") and not key in self.getMultipartParas() and not key.startswith("_RestApi__") and value is not None :
                 if(key.startswith("_")):
                     application_parameter[key[1:]] = value
@@ -251,7 +270,7 @@ class RestApi(object):
                     application_parameter[key] = value
         #查询翻译字典来规避一些关键字属性
         translate_parameter = self.getTranslateParas()
-        for key, value in application_parameter.iteritems():
+        for key in application_parameter:
             if key in translate_parameter:
                 application_parameter[translate_parameter[key]] = application_parameter[key]
                 del application_parameter[key]
